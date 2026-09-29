@@ -1,0 +1,12 @@
+{
+    "servers": {
+        "proton-email-organizer": {
+            "command": "dotnet",
+            "args": [
+                "run",
+                "ProtonEmailOrganizer.csproj",
+            ],
+            "env": {}
+        }
+    }
+}

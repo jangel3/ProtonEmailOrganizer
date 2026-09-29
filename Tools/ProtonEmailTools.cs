@@ -18,7 +18,7 @@ public class ProtonEmailTools
         Environment.GetEnvironmentVariable("BRIDGE_USER") 
         ?? Environment.GetEnvironmentVariable("BRIDGE_USER", EnvironmentVariableTarget.User) 
         ?? Environment.GetEnvironmentVariable("BRIDGE_USER", EnvironmentVariableTarget.Machine) 
-        ?? "stop@proton.me";
+        ?? "bogus@proton.me";
 
     private static readonly string BridgePass = 
         Environment.GetEnvironmentVariable("BRIDGE_PASS") 
@@ -31,16 +31,13 @@ public class ProtonEmailTools
 
     [McpServerTool]
     [Description("Search emails in Proton Mail via the local bridge")]
-    public async Task SearchEmailsAsync(
+    public async Task<string> SearchEmailsAsync(
         [Description ("The search text query to match against email body or subject")] string query,
         [Description("The mailbox folder to search (defaults to INBOX)")] string folder = "INBOX")
 
     {
         Debug.WriteLine($"Username: {BridgeUser} - Searching emails in folder: {folder} with query: {query}");
-        var fileStream = File.Open("search_log.txt", FileMode.Append);
-        fileStream.Write(System.Text.Encoding.UTF8.GetBytes($"Username: {BridgeUser} - Searching emails in folder: {folder} with query: {query}{Environment.NewLine}"));
-        fileStream.Close();
-        
+
         using var client = new ImapClient();
 
         // Proton Bridge uses self-signed certificates locally; bypass trust checks
@@ -48,17 +45,25 @@ public class ProtonEmailTools
 
         await client.ConnectAsync(BridgeHost, ImapPort, false);
         await client.AuthenticateAsync(BridgeUser, BridgePass);
-        var inbox = client.Inbox;
-        await inbox.OpenAsync(MailKit.FolderAccess.ReadOnly);
-        var results = await inbox.SearchAsync(SearchQuery.BodyContains(query)
+        var mailbox = string.Equals(folder, "INBOX", StringComparison.OrdinalIgnoreCase)
+            ? client.Inbox
+            : await client.GetFolderAsync(folder);
+        await mailbox.OpenAsync(MailKit.FolderAccess.ReadOnly);
+        var results = await mailbox.SearchAsync(SearchQuery.BodyContains(query)
             .Or(SearchQuery.SubjectContains(query))
             .Or(SearchQuery.FromContains(query)));
+
+        var messages = new List<string>();
         foreach (var uid in results)
         {
-            var message = await inbox.GetMessageAsync(uid);
-            Console.WriteLine($"Subject: {message.Subject}");
+            var message = await mailbox.GetMessageAsync(uid);
+            messages.Add($"Subject: {message.Subject}\nFrom: {message.From}\nDate: {message.Date:yyyy-MM-dd HH:mm:ss zzz}");
         }
         await client.DisconnectAsync(true);
+
+        return messages.Count == 0
+            ? $"No emails matching '{query}' were found in {folder}."
+            : $"Found {messages.Count} email(s) in {folder}:\n\n{string.Join("\n\n", messages)}";
     }
 
 }
